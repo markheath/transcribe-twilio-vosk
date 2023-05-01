@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Twilio" Version="6.5.0" />
+    <PackageReference Include="Twilio.AspNet.Core" Version="8.0.0" />
     <PackageReference Include="Vosk" Version="0.3.38" />
   </ItemGroup>
 
