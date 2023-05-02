@@ -71,9 +71,14 @@ async Task Echo(WebSocket webSocket)
                 break;
             case "start":
                 Console.WriteLine("Event: start");
+                var streamSid = jsonDocument.RootElement.GetProperty("streamSid").GetString();
+                Console.WriteLine($"StreamId: {streamSid}");
                 break;
             case "media":
                 Console.WriteLine("Event: media");
+                var payload = jsonDocument.RootElement.GetProperty("media").GetProperty("payload").GetString();
+                byte[] data = Convert.FromBase64String(payload);
+
                 break;
             case "stop":
                 Console.WriteLine("Event: stop");
