@@ -17,6 +17,8 @@ var appLifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 app.UseForwardedHeaders();
 app.UseWebSockets();
 
+AudioConverter converter = new AudioConverter();
+
 // You can set to -1 to disable logging messages
 Vosk.Vosk.SetLogLevel(0);
 var model = new Model("model");
@@ -77,8 +79,26 @@ async Task Echo(WebSocket webSocket)
             case "media":
                 Console.WriteLine("Event: media");
                 var payload = jsonDocument.RootElement.GetProperty("media").GetProperty("payload").GetString();
+                if (payload == null) throw new InvalidOperationException("Couldn't parse audio payload from media event");
                 byte[] data = Convert.FromBase64String(payload);
 
+                var (converted, convertedLength) = converter.ConvertBuffer(data);
+
+                if (rec.AcceptWaveform(converted, convertedLength))
+                {
+                    var json = rec.Result();
+                    var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(json);
+                    if (jsonDoc == null) throw new InvalidOperationException("Couldn't parse JSON result from Vosk");
+                    Console.WriteLine(jsonDoc.RootElement.GetProperty("text").GetString());
+                    // result includes confidence for each word and start times
+                }
+                else
+                {
+                    var json = rec.PartialResult();
+                    var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(rec.PartialResult());
+                    //Console.WriteLine(jsonDoc.RootElement.GetProperty("partial").GetString());
+                    // note: we get lots of partials very fast and they build on the previous one
+                }
                 break;
             case "stop":
                 Console.WriteLine("Event: stop");
