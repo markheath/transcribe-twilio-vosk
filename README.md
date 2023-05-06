@@ -4,7 +4,7 @@ To run this, first you will need to purchase a Twilio phone number (can do this 
 
 Run the server locally with `dotnet run`
 
-Create a proxy with `ngrok http 5181`.
+Create a proxy with `ngrok http 5045`.
 
 Then set up the Twilio webhook for that number to points at the `/voice` endpoint for the ngrok proxy. 
 

@@ -20,7 +20,7 @@ app.UseWebSockets();
 AudioConverter converter = new AudioConverter();
 
 // You can set to -1 to disable logging messages
-Vosk.Vosk.SetLogLevel(0);
+Vosk.Vosk.SetLogLevel(-1);
 var model = new Model("model");
 var spkModel = new SpkModel("model-spk");
 var rec = new VoskRecognizer(model, 16000.0f);
@@ -77,7 +77,6 @@ async Task Echo(WebSocket webSocket)
                 Console.WriteLine($"StreamId: {streamSid}");
                 break;
             case "media":
-                Console.WriteLine("Event: media");
                 var payload = jsonDocument.RootElement.GetProperty("media").GetProperty("payload").GetString();
                 if (payload == null) throw new InvalidOperationException("Couldn't parse audio payload from media event");
                 byte[] data = Convert.FromBase64String(payload);
