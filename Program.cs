@@ -12,7 +12,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(
 );
 
 var app = builder.Build();
-var appLifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 
 app.UseForwardedHeaders();
 app.UseWebSockets();
@@ -40,12 +39,12 @@ app.MapPost("/voice", (HttpRequest request) =>
     return Results.Extensions.TwiML(response);
 });
 
-app.MapGet("/stream", async (HttpContext context) =>
+app.MapGet("/stream", async (HttpContext context, IHostApplicationLifetime appLifetime) =>
 {
     if (context.WebSockets.IsWebSocketRequest)
     {
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-        await Echo(webSocket);
+        await Echo(webSocket, appLifetime);
     }
     else
     {
@@ -53,7 +52,7 @@ app.MapGet("/stream", async (HttpContext context) =>
     }
 });
 
-async Task Echo(WebSocket webSocket)
+async Task Echo(WebSocket webSocket, IHostApplicationLifetime appLifetime)
 {
     var buffer = new byte[1024 * 4];
     var receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
