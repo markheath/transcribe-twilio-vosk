@@ -1,7 +1,6 @@
-using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
 using Microsoft.AspNetCore.HttpOverrides;
+using System.Net.WebSockets;
+using System.Text.Json;
 using Twilio.AspNet.Core;
 using Twilio.TwiML;
 using Vosk;
@@ -10,23 +9,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<ForwardedHeadersOptions>(
     options => options.ForwardedHeaders = ForwardedHeaders.All
 );
+builder.Services.AddScoped<AudioConverter>();
+builder.Services.AddScoped<VoskRecognizer>(_ =>
+{
+    // You can set to -1 to disable logging messages
+    Vosk.Vosk.SetLogLevel(-1);
+    var model = new Model("model");
+    var spkModel = new SpkModel("model-spk");
+    var recognizer = new VoskRecognizer(model, 16000.0f);
+    recognizer.SetSpkModel(spkModel);
+    recognizer.SetMaxAlternatives(0);
+    recognizer.SetWords(true);
+    return recognizer;
+});
 
 var app = builder.Build();
-
 app.UseForwardedHeaders();
 app.UseWebSockets();
-
-AudioConverter converter = new AudioConverter();
-
-// You can set to -1 to disable logging messages
-Vosk.Vosk.SetLogLevel(-1);
-var model = new Model("model");
-var spkModel = new SpkModel("model-spk");
-var rec = new VoskRecognizer(model, 16000.0f);
-rec.SetSpkModel(spkModel);
-rec.SetMaxAlternatives(0);
-rec.SetWords(true);
-
 
 app.MapGet("/", () => "Hello World!");
 
@@ -44,7 +43,7 @@ app.MapGet("/stream", async (HttpContext context, IHostApplicationLifetime appLi
     if (context.WebSockets.IsWebSocketRequest)
     {
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-        await Echo(webSocket, appLifetime);
+        await Echo(webSocket, context.RequestServices);
     }
     else
     {
@@ -52,18 +51,23 @@ app.MapGet("/stream", async (HttpContext context, IHostApplicationLifetime appLi
     }
 });
 
-async Task Echo(WebSocket webSocket, IHostApplicationLifetime appLifetime)
+async Task Echo(
+    WebSocket webSocket,
+    IServiceProvider serviceProvider
+)
 {
+    var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
+    var audioConverter = serviceProvider.GetRequiredService<AudioConverter>();
+    var recognizer = serviceProvider.GetRequiredService<VoskRecognizer>();
+
     var buffer = new byte[1024 * 4];
     var receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-
 
     while (!receiveResult.CloseStatus.HasValue &&
            !appLifetime.ApplicationStopping.IsCancellationRequested)
     {
-        using var jsonDocument = JsonDocument.Parse(Encoding.UTF8.GetString(buffer, 0, receiveResult.Count));
+        using var jsonDocument = JsonSerializer.Deserialize<JsonDocument>(buffer.AsSpan(0, receiveResult.Count));
         var eventMessage = jsonDocument.RootElement.GetProperty("event").GetString();
-
 
         switch (eventMessage)
         {
@@ -77,25 +81,19 @@ async Task Echo(WebSocket webSocket, IHostApplicationLifetime appLifetime)
                 break;
             case "media":
                 var payload = jsonDocument.RootElement.GetProperty("media").GetProperty("payload").GetString();
-                if (payload == null) throw new InvalidOperationException("Couldn't parse audio payload from media event");
                 byte[] data = Convert.FromBase64String(payload);
-
-                var (converted, convertedLength) = converter.ConvertBuffer(data);
-
-                if (rec.AcceptWaveform(converted, convertedLength))
+                var (converted, convertedLength) = audioConverter.ConvertBuffer(data);
+                if (recognizer.AcceptWaveform(converted, convertedLength))
                 {
-                    var json = rec.Result();
+                    var json = recognizer.Result();
                     var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(json);
-                    if (jsonDoc == null) throw new InvalidOperationException("Couldn't parse JSON result from Vosk");
                     Console.WriteLine(jsonDoc.RootElement.GetProperty("text").GetString());
-                    // result includes confidence for each word and start times
                 }
                 else
                 {
-                    var json = rec.PartialResult();
-                    var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(rec.PartialResult());
+                    var json = recognizer.PartialResult();
+                    var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(recognizer.PartialResult());
                     //Console.WriteLine(jsonDoc.RootElement.GetProperty("partial").GetString());
-                    // note: we get lots of partials very fast and they build on the previous one
                 }
                 break;
             case "stop":
@@ -120,8 +118,6 @@ async Task Echo(WebSocket webSocket, IHostApplicationLifetime appLifetime)
             "Server shutting down",
             CancellationToken.None);
     }
-
 }
-
 
 app.Run();
